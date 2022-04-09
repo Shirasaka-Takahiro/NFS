@@ -1,0 +1,128 @@
+/サーバ構築手順とクライアントからのマウント設定/
+
+※前提
+virtualbox+vagrantでCentos7のサーバ2台を準備する
+NFSサーバ IP:192.168.33.85
+NFSクライアント IP:192.168.33.84
+
+▼目次
+1. NFSサーバ構築用パッケージのインストール
+2. NFSサーバの設定
+3. NFSクライアントの設定
+4. 動作確認
+
+=====手順ここから=====
+
+1. NFSサーバ構築用パッケージのインストール
+
+rootユーザーへスイッチ
+$ sudo -s
+
+パッケージのインストール有無を確認
+$ rpm -qa | grep nfs
+→「nfs-utils-1.3.0-0.66.el7.x86_64」が表示されればOK
+
+※インストールされていなければyumコマンドでインストールを実施する
+$ yum -y install nfs-utils
+$ yum list installed | grep "nfs-utils"
+
+
+2. NFSサーバの設定
+
+共有用ディレクトリ作成
+$ mkdir -p /export/nfs
+$ ls -la /export/
+→ディレクトリが作成されていることを確認
+
+確認用ファイル作成(クライアントからマウントした時に確認する用のファイル作成)
+$ echo hello > /export/nfs/hello.txt
+$ ls -la /export/nfs/
+→確認用ファイルが作成されていることを確認
+$ cat /export/nfs/hello.txt
+→記入した内容が表示されることを確認
+
+設定ファイル作成
+設定ファイルは項目ごとに/etc/exports.d/*.exportsファイルを作成すればよい。拡張子はexportsであること。
+$ cd /etc/;pwd
+$ ls -l | grep "export"
+→「exports.d」ディレクトリが表示されることを確認
+$ echo "/export/nfs *(rw,no_root_squash)" > /etc/exports.d/export-nfs.exports
+$ ls -la /etc/exports.d
+→「export-nfs.exports」ファイルが作成されていることを確認
+$ cat /etc/exports.d/export-nfs.exports
+→記入した内容が表示されることを確認
+
+設定反映と確認
+exportfs -arで反映、exportfs -vで設定内容を出力する。
+$ exportfs -v
+$ exportfs -ar
+$ exportfs -v
+→「/export/nfs...」から始まるものが出力されればOK
+
+NFSサーバの起動
+$ systemctl status nfs-server
+$ systemctl start nfs-server
+$ systemctl status nfs-server
+$ systemctl enable nfs-server
+$ systemctl is-enabled nfs-server
+→「active」になっていればOK
+
+3. NFSクライアントの設定
+
+rootユーザーへスイッチ
+$ sudo -s
+
+パッケージのインストール有無を確認
+マウント時、クライアントにもnfs-utilsパッケージがないとエラーになる
+$ rpm -qa | grep nfs
+→「nfs-utils-1.3.0-0.66.el7.x86_64」が表示されればOK
+
+手動マウント
+マウントは通常通りmountコマンドを使用する。その際typesオプション(-t)にnfsを指定する。
+$ ls -l /mnt/
+$ mount -t nfs -o rw 192.168.33.85:/export/nfs /mnt -v
+→以下のように表示されればOK
+▼表示例
+mount.nfs: timeout set for Sat Apr  9 04:46:36 2022
+mount.nfs: trying text-based options 'vers=4.1,addr=192.168.33.85,clientaddr=192.168.33.84'
+
+※「192.168.33.85」に関して、ホスト名でも指定可能だが、/etc/hostに記載していないと名前解決できずエラーになる。
+
+$ ls -l /mnt/
+→「hello.txt」が表示されていればOK
+
+「/etc/fstab」へ記載
+OS再起動時にも自動的にマウントさせるため、「/etc/fstab」へ記入する
+$ ls -l /etc/ | grep "fstab"
+$ cd /etc/;pwd
+$ cp -ip fstab fstab.org
+$ ls -l | grep "fstab" 
+$ echo 192.168.33.85:/export/nfs /mnt nfs rw 0 0 >> /etc/fstab
+$ diff fstab fstab.org
+→「192.168.33.85:/export/nfs /mnt nfs rw 0 0」が表示されていればOK
+
+4. 動作確認
+
+▼NFSサーバで実施
+$ cd /export/nfs;pwd
+$ ls -l
+$ echo test >> hello.txt
+$ cat hello.txt
+→「hello」、「test」が表示されていればOK
+$ touch test.txt
+$ ls -l
+→ 「test.txt」が表示されていればOK
+
+▼NFSクライアントで実施
+$ cd /mnt;pwd
+$ ls -l 
+→ 「test.txt」が表示されていればOK
+$ cat /mnt/hello.txt
+→「hello」、「test」が表示されていればOK
+$ echo test2 >> /mnt/hello.txt
+$ cat /mnt/hello.txt
+→「hello」、「test」、「test2」が表示されていればOK
+
+▼NFSサーバで実施
+$ cat /export/nfs/hello.txt
+→「hello」、「test」、「test2」が表示されていればOK
